@@ -5,17 +5,19 @@
 #include <SDS011.h>
 #include <SoftwareSerial.h>
 
-
 #define SDS_RX D1
 #define SDS_TX D2
+#define SAMPLES 5
 
-#define DHTPIN D4 
-#define DHTTYPE DHT22   
+//#define DHTPIN D4 
+//#define DHTTYPE DHT22   
 
-const char* ssid     = "wifi-ssid";
-const char* password = "password";
+const int sleep_duration = 10 * 60000;        //sleep duration 10 min
+
+const char* ssid     = "";          //wifi ssid goes here
+const char* password = "";          //wifi password goes here
 const char* host = "api.thingspeak.com";
-String apiKey = ""; // thingspeak.com api key goes here
+String apiKey = "";                 // thingspeak.com api key goes here
 
 float p10,p25;
 int error;
@@ -28,7 +30,7 @@ struct Air {
 };
 
 
-DHT_Unified dht(DHTPIN, DHTTYPE);
+//DHT_Unified dht(DHTPIN, DHTTYPE);
 ESP8266WebServer server(80);
 WiFiClient client;
 SDS011 sds;
@@ -36,7 +38,7 @@ SDS011 sds;
 void setup() {
   Serial.begin(9600);
   sds.begin(SDS_RX,SDS_TX);
-  dht.begin();
+  //dht.begin();
   connectToWiFi();
 }
 
@@ -48,10 +50,10 @@ void loop() {
     postStr += String(airData.pm25);
     postStr +="&field2=";
     postStr += String(airData.pm10);
-    postStr +="&field3=";
-    postStr += String(airData.humidity);
-    postStr +="&field4=";
-    postStr += String(airData.temperature);
+//    postStr +="&field3=";
+//    postStr += String(airData.humidity);
+//    postStr +="&field4=";
+//    postStr += String(airData.temperature);
     postStr += "\r\n\r\n";
   
     client.print("POST /update HTTP/1.1\n");
@@ -65,9 +67,14 @@ void loop() {
     client.print(postStr);
   }
   client.stop();
-  delay(15000);
+
+  sds.sleep();
+  delay(sleep_duration);
   
   server.handleClient();
+
+  sds.wakeup();
+  delay(5000);
 }
 
 void connectToWiFi(){
@@ -101,28 +108,29 @@ void handleRoot() {
 }
 
 Air readPolution(){
-  float temperature, humidity;
+//  float temperature, humidity;
   error = sds.read(&p25,&p10);
   if (!error) {
-    sensors_event_t event;  
-    dht.temperature().getEvent(&event);
-    if (isnan(event.temperature)) {
-      Serial.println("Error reading temperature!");
-    } else {
-      temperature = event.temperature;
-    }
-  
-    dht.humidity().getEvent(&event);
-    if (isnan(event.relative_humidity)) {
-      Serial.println("Error reading humidity!");
-    } else {
-      humidity = event.relative_humidity;
-    }
-   
-    Air result = (Air){normalizePM25(p25/10, humidity), normalizePM10(p10/10, humidity), humidity, temperature};
+//    sensors_event_t event;  
+//    dht.temperature().getEvent(&event);
+//    if (isnan(event.temperature)) {
+//      Serial.println("Error reading temperature!");
+//    } else {
+//      temperature = event.temperature;
+//    }
+//  
+//    dht.humidity().getEvent(&event);
+//    if (isnan(event.relative_humidity)) {
+//      Serial.println("Error reading humidity!");
+//    } else {
+//      humidity = event.relative_humidity;
+//    }
+//   
+    Air result = (Air){calculatePolutionPM25(p25), calculatePolutionPM10(p10), 0, 0};
     return result;
   } else {
     Serial.println("Error reading SDS011");
+    Serial.println(error);
     return (Air){0.0, 0.0, 0.0, 0.0};
   }
 }
@@ -137,10 +145,9 @@ float normalizePM10(float pm10, float humidity){
 }
 
 float calculatePolutionPM25(float pm25){
-  return pm25*100/25;
+  return pm25;
 }
 
 float calculatePolutionPM10(float pm10){
-  return pm10*100/50;
+  return pm10;
 }
-
