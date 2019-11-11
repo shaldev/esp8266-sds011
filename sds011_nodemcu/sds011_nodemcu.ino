@@ -13,17 +13,22 @@ const int sleep_duration = 10 * 60000;        //sleep duration 10 min
 
 const char* ssid     = "";          //wifi ssid goes here
 const char* password = "";          //wifi password goes here
+
 const char* host = "api.thingspeak.com";
+const char* iftttHost = "maker.ifttt.com";
+
 String apiKey = "";                 // thingspeak.com api key goes here
+String iftttApiKey = "";			// IFTTT webhooks api key
+String iftttEvent = "";				// IFTTT notification event
 
 float p10,p25;
 int error;
 
 struct Air {
-  float pm25;
-  float pm10;
-  float humidity;
-  float temperature;
+	float pm25;
+	float pm10;
+	float humidity;
+	float temperature;
 };
 
 ESP8266WebServer server(80);
@@ -31,97 +36,131 @@ WiFiClient client;
 SDS011 sds;
 
 void setup() {
-  Serial.begin(9600);
-  sds.begin(SDS_RX,SDS_TX);
-  connectToWiFi();
+	Serial.begin(9600);
+	sds.begin(SDS_RX,SDS_TX);
+	connectToWiFi();
 }
 
 void loop() {
-  Air airData = readPolution();
-  if (client.connect(host,80) & airData.pm25 > 0.0) {
-    String postStr = apiKey;
-    postStr +="&field1=";
-    postStr += String(airData.pm25);
-    postStr +="&field2=";
-    postStr += String(airData.pm10);
-    postStr += "\r\n\r\n";
+	Air airData = readPolution();
+	if (airData.pm25 > 0.0) {
+		sendThings(airData, client);
 
-    client.print("POST /update HTTP/1.1\n");
-    client.print("Host: api.thingspeak.com\n");
-    client.print("Connection: close\n");
-    client.print("X-THINGSPEAKAPIKEY: "+apiKey+"\n");
-    client.print("Content-Type: application/x-www-form-urlencoded\n");
-    client.print("Content-Length: ");
-    client.print(postStr.length());
-    client.print("\n\n");
-    client.print(postStr);
-  }
-  client.stop();
+		if (airData.pm25 > 25.0 || airData.pm10 > 50.0) {
+			sendIFTTT(airData, client);
+		}
+	}
 
-  sds.sleep();
-  delay(sleep_duration);
+	sds.sleep();
 
-  server.handleClient();
+	server.handleClient();
 
-  sds.wakeup();
-  delay(5000);
+	delay(sleep_duration);
+
+	sds.wakeup();
+
+	delay(5000);
+}
+
+void sendThings(Air airData, WiFiClient client) {
+	if (!client.connect(host,80)) {
+		return;
+	}
+
+	String postStr = apiKey;
+	postStr +="&field1=";
+	postStr += String(airData.pm25);
+	postStr +="&field2=";
+	postStr += String(airData.pm10);
+	postStr += "\r\n\r\n";
+
+	client.print("POST /update HTTP/1.1\n");
+	client.print("Host: api.thingspeak.com\n");
+	client.print("Connection: close\n");
+	client.print("X-THINGSPEAKAPIKEY: "+apiKey+"\n");
+	client.print("Content-Type: application/x-www-form-urlencoded\n");
+	client.print("Content-Length: ");
+	client.print(postStr.length());
+	client.print("\n\n");
+	client.print(postStr);
+
+	client.stop();
+}
+
+void sendIFTTT(Air airData, WiFiClient client) {
+	if (!client.connect(iftttHost, 80)) {
+		return;
+	}
+
+	String postStr = "{\"value1\":\"" + String(airData.pm25) + "\",\"value2\":\"" + String(airData.pm10) + "\"}";
+
+	client.print("POST /trigger/" + iftttEvent + "/with/key/" + iftttApiKey + " HTTP/1.1\n");
+	client.print("Host: maker.ifttt.com\n");
+	client.print("Connection: close\n");
+	client.print("Content-Type: application/json\n");
+	client.print("Content-Length: ");
+	client.print(postStr.length());
+	client.print("\n\n");
+	client.print(postStr);
+
+	client.stop();
 }
 
 void connectToWiFi(){
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
+	WiFi.mode(WIFI_STA);
+	WiFi.begin(ssid, password);
 
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
+	Serial.print("Connecting to ");
+	Serial.println(ssid);
 
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
+	while (WiFi.status() != WL_CONNECTED) {
+		delay(500);
+		Serial.print(".");
+	}
 
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
-  startServer();
+	Serial.println("");
+	Serial.println("WiFi connected");
+	Serial.println("IP address: ");
+	Serial.println(WiFi.localIP());
+	startServer();
 }
 
 void startServer(){
-  server.on("/", handleRoot);
-  server.begin();
-  Serial.println("HTTP server started");
+	server.on("/", handleRoot);
+	server.begin();
+	Serial.println("HTTP server started");
 }
 
 void handleRoot() {
-    Air airData = readPolution();
-    server.send(200, "text/plain", "PM2.5: " + String(airData.pm25) + " (" + String(calculatePolutionPM25(airData.pm25)) + "% normy) | PM10: " +  String(airData.pm10) + " (" + String(calculatePolutionPM10(airData.pm10)) + "% normy) | Temperature: " + airData.temperature + " | Humidity: " + airData.humidity);
+	Air airData = readPolution();
+	server.send(200, "text/plain", "PM2.5: " + String(airData.pm25) + " (" + String(calculatePolutionPM25(airData.pm25)) + "% normy) | PM10: " +  String(airData.pm10) + " (" + String(calculatePolutionPM10(airData.pm10)) + "% normy) | Temperature: " + airData.temperature + " | Humidity: " + airData.humidity);
 }
 
 Air readPolution(){
-  error = sds.read(&p25,&p10);
-  if (!error) {
-    Air result = (Air){calculatePolutionPM25(p25), calculatePolutionPM10(p10), 0, 0};
-    return result;
-  } else {
-    Serial.println("Error reading SDS011");
-    Serial.println(error);
-    return (Air){0.0, 0.0, 0.0, 0.0};
-  }
+	error = sds.read(&p25,&p10);
+	if (!error) {
+		Air result = (Air){calculatePolutionPM25(p25), calculatePolutionPM10(p10), 0, 0};
+		return result;
+	} else {
+		Serial.println("Error reading SDS011");
+		Serial.println(error);
+		return (Air){0.0, 0.0, 0.0, 0.0};
+	}
 }
 
 //Correction algorythm thanks to help of Zbyszek Kiliański (Krakow Zdroj)
 float normalizePM25(float pm25, float humidity){
-  return pm25/(1.0+0.48756*pow((humidity/100.0), 8.60068));
+	return pm25/(1.0+0.48756*pow((humidity/100.0), 8.60068));
 }
 
 float normalizePM10(float pm10, float humidity){
-  return pm10/(1.0+0.81559*pow((humidity/100.0), 5.83411));
+	return pm10/(1.0+0.81559*pow((humidity/100.0), 5.83411));
 }
 
 float calculatePolutionPM25(float pm25){
-  return pm25;
+	return pm25;
 }
 
 float calculatePolutionPM10(float pm10){
-  return pm10;
+	return pm10;
 }
