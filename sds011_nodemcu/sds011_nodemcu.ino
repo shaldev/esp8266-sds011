@@ -21,7 +21,7 @@ String apiKey = "";                 // thingspeak.com api key goes here
 String iftttApiKey = "";			// IFTTT webhooks api key
 String iftttEvent = "";				// IFTTT notification event
 
-float p10,p25;
+float p10, p25;
 int error;
 
 struct Air {
@@ -37,6 +37,15 @@ SDS011 sds;
 
 void setup() {
 	Serial.begin(9600);
+
+	if (apiKey == "") {
+		Serial.println("Missing Thingspeak API key");
+	}
+
+	if (iftttApiKey == "" || iftttEvent == "") {
+		Serial.println("Missing IFTTT API key or Event");
+	}
+
 	sds.begin(SDS_RX, SDS_TX);
 	connectToWiFi();
 }
@@ -63,7 +72,12 @@ void loop() {
 }
 
 void sendThings(Air airData) {
-	if (!client.connect(host,80)) {
+	if (apiKey == "") {
+		return;
+	}
+
+	if (!client.connect(host, 80)) {
+		Serial.println("Could not connect to Thingspeak");
 		return;
 	}
 
@@ -77,7 +91,7 @@ void sendThings(Air airData) {
 	client.print("POST /update HTTP/1.1\n");
 	client.print("Host: api.thingspeak.com\n");
 	client.print("Connection: close\n");
-	client.print("X-THINGSPEAKAPIKEY: "+apiKey+"\n");
+	client.print("X-THINGSPEAKAPIKEY: " + apiKey + "\n");
 	client.print("Content-Type: application/x-www-form-urlencoded\n");
 	client.print("Content-Length: ");
 	client.print(postStr.length());
@@ -88,7 +102,12 @@ void sendThings(Air airData) {
 }
 
 void sendIFTTT(Air airData) {
+	if (iftttApiKey == "" || iftttEvent == "") {
+		return;
+	}
+
 	if (!client.connect(iftttHost, 80)) {
+		Serial.println("Could not connect to Thingspeak");
 		return;
 	}
 
