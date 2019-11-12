@@ -37,17 +37,17 @@ SDS011 sds;
 
 void setup() {
 	Serial.begin(9600);
-	sds.begin(SDS_RX,SDS_TX);
+	sds.begin(SDS_RX, SDS_TX);
 	connectToWiFi();
 }
 
 void loop() {
 	Air airData = readPolution();
 	if (airData.pm25 > 0.0) {
-		sendThings(airData, client);
+		sendThings(airData);
 
 		if (airData.pm25 > 25.0 || airData.pm10 > 50.0) {
-			sendIFTTT(airData, client);
+			sendIFTTT(airData);
 		}
 	}
 
@@ -62,7 +62,7 @@ void loop() {
 	delay(5000);
 }
 
-void sendThings(Air airData, WiFiClient client) {
+void sendThings(Air airData) {
 	if (!client.connect(host,80)) {
 		return;
 	}
@@ -87,7 +87,7 @@ void sendThings(Air airData, WiFiClient client) {
 	client.stop();
 }
 
-void sendIFTTT(Air airData, WiFiClient client) {
+void sendIFTTT(Air airData) {
 	if (!client.connect(iftttHost, 80)) {
 		return;
 	}
@@ -132,14 +132,13 @@ void startServer(){
 }
 
 void handleRoot() {
-	Air airData = readPolution();
-	server.send(200, "text/plain", "PM2.5: " + String(airData.pm25) + " (" + String(calculatePolutionPM25(airData.pm25)) + "% normy) | PM10: " +  String(airData.pm10) + " (" + String(calculatePolutionPM10(airData.pm10)) + "% normy) | Temperature: " + airData.temperature + " | Humidity: " + airData.humidity);
+	server.send(200, "text/plain", "Nothing to see here, move along.");
 }
 
 Air readPolution(){
-	error = sds.read(&p25,&p10);
+	error = sds.read(&p25, &p10);
 	if (!error) {
-		Air result = (Air){calculatePolutionPM25(p25), calculatePolutionPM10(p10), 0, 0};
+		Air result = (Air){calculatePolutionPM25(p25), calculatePolutionPM10(p10), 0.0, 0.0};
 		return result;
 	} else {
 		Serial.println("Error reading SDS011");
@@ -150,11 +149,11 @@ Air readPolution(){
 
 //Correction algorythm thanks to help of Zbyszek Kiliański (Krakow Zdroj)
 float normalizePM25(float pm25, float humidity){
-	return pm25/(1.0+0.48756*pow((humidity/100.0), 8.60068));
+	return pm25 / (1.0 + 0.48756 * pow((humidity / 100.0), 8.60068));
 }
 
 float normalizePM10(float pm10, float humidity){
-	return pm10/(1.0+0.81559*pow((humidity/100.0), 5.83411));
+	return pm10 / (1.0 + 0.81559 * pow((humidity / 100.0), 5.83411));
 }
 
 float calculatePolutionPM25(float pm25){
