@@ -52,7 +52,7 @@ void setup() {
 
 void loop() {
 	Air airData = readPolution();
-	if (airData.pm25 > 0.0) {
+	if (airData.pm25 > 0.0 || airData.pm10 > 0.0) {
 		sendThings(airData);
 
 		if (airData.pm25 > 25.0 || airData.pm10 > 50.0) {
