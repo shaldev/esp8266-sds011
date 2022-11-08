@@ -1,184 +1,232 @@
-#include <DHT.h>
-#include <DHT_U.h>
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BME280.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
-#include <SDS011.h>
-#include <SoftwareSerial.h>
+#include <SdsDustSensor.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include "AirQuality.h"
+#include "Config.h"
 
-#define SDS_RX D1
-#define SDS_TX D2
-#define SAMPLES 5
+int rxPin = D3;
+int txPin = D4;
+#define SDA_1 12
+#define SCL_1 13
+#define SEALEVELPRESSURE_HPA (1013.25)
+#define SCREEN_WIDTH 128  // OLED display width, in pixels
+#define SCREEN_HEIGHT 64  // OLED display height, in pixels
 
-const int sleep_duration = 10 * 60000;        //sleep duration 10 min
-
-const char* ssid     = "";          //wifi ssid goes here
-const char* password = "";          //wifi password goes here
-
-const char* host = "api.thingspeak.com";
+const int sleep_duration = 10 * 60000;  //sleep duration 10 min
+const char* thingspeakHost = "api.thingspeak.com";
 const char* iftttHost = "maker.ifttt.com";
 
-String apiKey = "";                 // thingspeak.com api key goes here
-String iftttApiKey = "";			// IFTTT webhooks api key
-String iftttEvent = "";				// IFTTT notification event
-
-float p10, p25;
-int error;
-
-struct Air {
-	float pm25;
-	float pm10;
-	float humidity;
-	float temperature;
-};
-
+Adafruit_BME280 bme;
 ESP8266WebServer server(80);
 WiFiClient client;
-SDS011 sds;
+SdsDustSensor sds(rxPin, txPin);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 void setup() {
-	Serial.begin(9600);
+  Serial.begin(9600);
+  delay(100);
 
-	if (apiKey == "") {
-		Serial.println("Missing Thingspeak API key");
-	}
+  if (apiKey == "") {
+    Serial.println("Missing Thingspeak API key");
+  }
 
-	if (iftttApiKey == "" || iftttEvent == "") {
-		Serial.println("Missing IFTTT API key or Event");
-	}
+  if (iftttApiKey == "" || iftttEvent == "") {
+    Serial.println("Missing IFTTT API key or Event");
+  }
 
-	sds.begin(SDS_RX, SDS_TX);
-	connectToWiFi();
+  sds.begin();
+  sds.setQueryReportingMode();
+
+  Wire.begin(SDA_1, SCL_1);
+  if (!bme.begin(0x76, &Wire)) {
+    Serial.println("BME sensor failed to start");
+  }
+
+  Wire.begin(D2, D1);
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("SSD1306 allocation failed");
+  }
+
+  drawOnDisplay("Connecting to Wifi [" + String(ssid) + "]");
+  connectToWiFi();
 }
 
 void loop() {
-	Air airData = readPolution();
-	if (airData.pm25 > 0.0 || airData.pm10 > 0.0) {
-		sendThings(airData);
+  sds.wakeup();
+  delay(5500);
 
-		if (airData.pm25 > 25.0 || airData.pm10 > 50.0) {
-			sendIFTTT(airData);
-		}
-	}
+  AirQuality airData = readPolution();
 
-	sds.sleep();
+  if (airData.isOk()) {
+    Serial.println(airData.toString());
 
-	server.handleClient();
+    if (airData.pm25 > 0.0 || airData.pm10 > 0.0) {
+      //Serial.println("DEBUG: Sending to thingsSpeak");
+      sendThings(airData);
 
-	delay(sleep_duration);
+      if (airData.pm25 > 40.0 || airData.pm10 > 60.0) {
+        sendIFTTT(airData);
+      }
+    }
 
-	sds.wakeup();
+    drawOnDisplay(airData);
+  }
 
-	delay(5000);
+  WorkingStateResult state = sds.sleep();
+
+  server.handleClient();
+
+  if (state.isWorking()) {
+    Serial.println("Problem with sleeping the sensor.");
+  } else {
+    Serial.println("Sensor is sleeping");
+    delay(sleep_duration);
+  }
 }
 
-void sendThings(Air airData) {
-	if (apiKey == "") {
-		return;
-	}
+void sendThings(AirQuality data) {
+  if (apiKey == "") {
+    return;
+  }
 
-	if (!client.connect(host, 80)) {
-		Serial.println("Could not connect to Thingspeak");
-		return;
-	}
+  if (!client.connect(thingspeakHost, 80)) {
+    Serial.println("Could not connect to Thingspeak");
+    return;
+  }
 
-	String postStr = apiKey;
-	postStr +="&field1=";
-	postStr += String(airData.pm25);
-	postStr +="&field2=";
-	postStr += String(airData.pm10);
-	postStr += "\r\n\r\n";
+  String postStr = apiKey;
+  postStr += "&field1=" + String(data.pm25);
+  postStr += "&field2=" + String(data.pm10);
+  postStr += "&field3=" + String(data.normalizePM25());
+  postStr += "&field4=" + String(data.normalizePM10());
+  postStr += "&field5=" + String(data.humidity);
+  postStr += "&field6=" + String(data.temperature);
+  postStr += "&field7=" + String(data.pressure);
+  postStr += "\r\n\r\n";
 
-	client.print("POST /update HTTP/1.1\n");
-	client.print("Host: api.thingspeak.com\n");
-	client.print("Connection: close\n");
-	client.print("X-THINGSPEAKAPIKEY: " + apiKey + "\n");
-	client.print("Content-Type: application/x-www-form-urlencoded\n");
-	client.print("Content-Length: ");
-	client.print(postStr.length());
-	client.print("\n\n");
-	client.print(postStr);
+  client.print("POST /update HTTP/1.1\n");
+  client.print("Host: api.thingspeak.com\n");
+  client.print("Connection: close\n");
+  client.print("X-THINGSPEAKAPIKEY: " + apiKey + "\n");
+  client.print("Content-Type: application/x-www-form-urlencoded\n");
+  client.print("Content-Length: ");
+  client.print(postStr.length());
+  client.print("\n\n");
+  client.print(postStr);
 
-	client.stop();
+  client.stop();
+  //Serial.println("DEBUG: Data sent to thinghSpeak");
 }
 
-void sendIFTTT(Air airData) {
-	if (iftttApiKey == "" || iftttEvent == "") {
-		return;
-	}
+void sendIFTTT(AirQuality airData) {
+  if (iftttApiKey == "" || iftttEvent == "") {
+    return;
+  }
 
-	if (!client.connect(iftttHost, 80)) {
-		Serial.println("Could not connect to Thingspeak");
-		return;
-	}
+  if (!client.connect(iftttHost, 80)) {
+    Serial.println("Could not connect to Thingspeak");
+    return;
+  }
 
-	String postStr = "{\"value1\":\"" + String(airData.pm25) + "\",\"value2\":\"" + String(airData.pm10) + "\"}";
+  String postStr = "{\"value1\":\"" + String(airData.pm25) + "\",\"value2\":\"" + String(airData.pm10) + "\"}";
 
-	client.print("POST /trigger/" + iftttEvent + "/with/key/" + iftttApiKey + " HTTP/1.1\n");
-	client.print("Host: maker.ifttt.com\n");
-	client.print("Connection: close\n");
-	client.print("Content-Type: application/json\n");
-	client.print("Content-Length: ");
-	client.print(postStr.length());
-	client.print("\n\n");
-	client.print(postStr);
+  client.print("POST /trigger/" + iftttEvent + "/with/key/" + iftttApiKey + " HTTP/1.1\n");
+  client.print("Host: maker.ifttt.com\n");
+  client.print("Connection: close\n");
+  client.print("Content-Type: application/json\n");
+  client.print("Content-Length: ");
+  client.print(postStr.length());
+  client.print("\n\n");
+  client.print(postStr);
 
-	client.stop();
+  client.stop();
 }
 
-void connectToWiFi(){
-	WiFi.mode(WIFI_STA);
-	WiFi.begin(ssid, password);
+void connectToWiFi() {
+  if (apiKey == "" && (iftttApiKey == "" || iftttEvent == "")) {
+    Serial.println("Wifi connection skipped");
+    return;
+  }
 
-	Serial.print("Connecting to ");
-	Serial.println(ssid);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
 
-	while (WiFi.status() != WL_CONNECTED) {
-		delay(500);
-		Serial.print(".");
-	}
+  Serial.println("Connecting to " + String(ssid));
 
-	Serial.println("");
-	Serial.println("WiFi connected");
-	Serial.println("IP address: ");
-	Serial.println(WiFi.localIP());
-	startServer();
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+  drawOnDisplay("Connected to Wifi");
+  startServer();
 }
 
-void startServer(){
-	server.on("/", handleRoot);
-	server.begin();
-	Serial.println("HTTP server started");
+void startServer() {
+  server.on("/", handleRoot);
+  server.begin();
+  Serial.println("HTTP server started");
 }
 
 void handleRoot() {
-	server.send(200, "text/plain", "Nothing to see here, move along.");
+  server.send(200, "text/plain", "Nothing to see here, move along.");
 }
 
-Air readPolution(){
-	error = sds.read(&p25, &p10);
-	if (!error) {
-		Air result = (Air){calculatePolutionPM25(p25), calculatePolutionPM10(p10), 0.0, 0.0};
-		return result;
-	} else {
-		Serial.println("Error reading SDS011");
-		Serial.println(error);
-		return (Air){0.0, 0.0, 0.0, 0.0};
-	}
+AirQuality readPolution() {
+  drawOnDisplay("Reading sensors...");
+  Wire.begin(SDA_1, SCL_1);
+
+  PmResult pm = sds.queryPm();
+
+  if (pm.isOk()) {
+    AirQuality result = AirQuality(pm.pm25,
+                                   pm.pm10,
+                                   bme.readTemperature(),
+                                   bme.readHumidity(),
+                                   bme.readAltitude(SEALEVELPRESSURE_HPA),
+                                   bme.readPressure());
+
+    return result;
+  }
+
+  Serial.println("Error reading SDS011: " + pm.statusToString());
+  return AirQuality();
 }
 
-//Correction algorythm thanks to help of Zbyszek Kiliański (Krakow Zdroj)
-float normalizePM25(float pm25, float humidity){
-	return pm25 / (1.0 + 0.48756 * pow((humidity / 100.0), 8.60068));
+void drawOnDisplay(AirQuality data) {
+  Wire.begin(D2, D1);
+  
+  display.clearDisplay();
+  display.display();
+
+  display.setTextSize(2);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 0);
+  display.println("PM10:" + String((int)data.normalizePM10()));
+  display.println("PM25:" + String((int)data.normalizePM25()));
+  display.setTextSize(1);
+  display.println(data.toShortString());
+  display.display();
 }
 
-float normalizePM10(float pm10, float humidity){
-	return pm10 / (1.0 + 0.81559 * pow((humidity / 100.0), 5.83411));
-}
+void drawOnDisplay(String msg) {
+  Wire.begin(D2, D1);
 
-float calculatePolutionPM25(float pm25){
-	return pm25;
-}
+  display.clearDisplay();
+  display.display();
 
-float calculatePolutionPM10(float pm10){
-	return pm10;
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 0);
+  display.println(msg);
+  display.display();
 }
