@@ -2,8 +2,9 @@
 SDS011 particulate matter sensor on NodeMCU board (ESP8266)
 
 - Support for Nova Fitness SDS011 particulate matter sensor family
-- Support for DHT22 humidity and temperature sensor
-- Http server as a presentation layer
+- Support for BME280 humidity, pressure, temperature, and altitude sensor
+- SSD1306 display as a presentation layer
+- Sends data to ThingsSpeak
 - IFTTT Notifications added
 
 Previous/simpler version available at https://gist.github.com/piotrkpaul/f85efa61968cd5115dddb78bc4be15fc
