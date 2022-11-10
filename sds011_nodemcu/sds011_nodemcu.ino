@@ -9,10 +9,10 @@
 #include "AirQuality.h"
 #include "Config.h"
 
-int rxPin = D3;
-int txPin = D4;
-#define SDA_1 12
-#define SCL_1 13
+#define SDS_RX_PIN D3;
+#define SDS_TX_PIN D4;
+#define BME_SDA D6
+#define BME_SCL D7
 #define SEALEVELPRESSURE_HPA (1013.25)
 #define SCREEN_WIDTH 128  // OLED display width, in pixels
 #define SCREEN_HEIGHT 64  // OLED display height, in pixels
@@ -24,7 +24,7 @@ const char* iftttHost = "maker.ifttt.com";
 Adafruit_BME280 bme;
 ESP8266WebServer server(80);
 WiFiClient client;
-SdsDustSensor sds(rxPin, txPin);
+SdsDustSensor sds(SDS_RX_PIN, SDS_TX_PIN);
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 void setup() {
@@ -42,7 +42,7 @@ void setup() {
   sds.begin();
   sds.setQueryReportingMode();
 
-  Wire.begin(SDA_1, SCL_1);
+  Wire.begin(BME_SDA, BME_SCL);
   if (!bme.begin(0x76, &Wire)) {
     Serial.println("BME sensor failed to start");
   }
@@ -58,7 +58,7 @@ void setup() {
 
 void loop() {
   sds.wakeup();
-  delay(5500);
+  delay(5000);
 
   AirQuality airData = readPolution();
 
@@ -100,10 +100,10 @@ void sendThings(AirQuality data) {
   }
 
   String postStr = apiKey;
-  postStr += "&field1=" + String(data.pm25);
-  postStr += "&field2=" + String(data.pm10);
-  postStr += "&field3=" + String(data.normalizePM25());
-  postStr += "&field4=" + String(data.normalizePM10());
+  postStr += "&field1=" + String(data.normalizePM25());
+  postStr += "&field2=" + String(data.normalizePM10());
+  postStr += "&field3=";
+  postStr += "&field4=";
   postStr += "&field5=" + String(data.humidity);
   postStr += "&field6=" + String(data.temperature);
   postStr += "&field7=" + String(data.pressure);
@@ -133,7 +133,7 @@ void sendIFTTT(AirQuality airData) {
     return;
   }
 
-  String postStr = "{\"value1\":\"" + String(airData.pm25) + "\",\"value2\":\"" + String(airData.pm10) + "\"}";
+  String postStr = "{\"value1\":\"" + String(airData.normalizePM25()) + "\",\"value2\":\"" + String(airData.normalizePM10()) + "\"}";
 
   client.print("POST /trigger/" + iftttEvent + "/with/key/" + iftttApiKey + " HTTP/1.1\n");
   client.print("Host: maker.ifttt.com\n");
@@ -148,7 +148,7 @@ void sendIFTTT(AirQuality airData) {
 }
 
 void connectToWiFi() {
-  if (apiKey == "" && (iftttApiKey == "" || iftttEvent == "")) {
+  if (ssid == "" || password == "" || (apiKey == "" && (iftttApiKey == "" || iftttEvent == ""))) {
     Serial.println("Wifi connection skipped");
     return;
   }
@@ -157,16 +157,26 @@ void connectToWiFi() {
   WiFi.begin(ssid, password);
 
   Serial.println("Connecting to " + String(ssid));
+  long unsigned start = millis();
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
+
+    if (millis() - start >= 30000) {
+      Serial.println("Could not connect to " + String(ssid));
+      return;
+    }
   }
 
   Serial.println("");
   Serial.println("WiFi connected");
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
+  
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(true);
+
   drawOnDisplay("Connected to Wifi");
   startServer();
 }
@@ -183,7 +193,7 @@ void handleRoot() {
 
 AirQuality readPolution() {
   drawOnDisplay("Reading sensors...");
-  Wire.begin(SDA_1, SCL_1);
+  Wire.begin(BME_SDA, BME_SCL);
 
   PmResult pm = sds.queryPm();
 
