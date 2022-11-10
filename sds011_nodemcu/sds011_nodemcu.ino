@@ -2,15 +2,14 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 #include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>
 #include <SdsDustSensor.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include "AirQuality.h"
 #include "Config.h"
 
-#define SDS_RX_PIN D3;
-#define SDS_TX_PIN D4;
+#define SDS_RX_PIN D3
+#define SDS_TX_PIN D4
 #define BME_SDA D6
 #define BME_SCL D7
 #define SEALEVELPRESSURE_HPA (1013.25)
@@ -22,7 +21,6 @@ const char* thingspeakHost = "api.thingspeak.com";
 const char* iftttHost = "maker.ifttt.com";
 
 Adafruit_BME280 bme;
-ESP8266WebServer server(80);
 WiFiClient client;
 SdsDustSensor sds(SDS_RX_PIN, SDS_TX_PIN);
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
@@ -79,8 +77,6 @@ void loop() {
 
   WorkingStateResult state = sds.sleep();
 
-  server.handleClient();
-
   if (state.isWorking()) {
     Serial.println("Problem with sleeping the sensor.");
   } else {
@@ -102,8 +98,6 @@ void sendThings(AirQuality data) {
   String postStr = apiKey;
   postStr += "&field1=" + String(data.normalizePM25());
   postStr += "&field2=" + String(data.normalizePM10());
-  postStr += "&field3=";
-  postStr += "&field4=";
   postStr += "&field5=" + String(data.humidity);
   postStr += "&field6=" + String(data.temperature);
   postStr += "&field7=" + String(data.pressure);
@@ -178,17 +172,6 @@ void connectToWiFi() {
   WiFi.persistent(true);
 
   drawOnDisplay("Connected to Wifi");
-  startServer();
-}
-
-void startServer() {
-  server.on("/", handleRoot);
-  server.begin();
-  Serial.println("HTTP server started");
-}
-
-void handleRoot() {
-  server.send(200, "text/plain", "Nothing to see here, move along.");
 }
 
 AirQuality readPolution() {
@@ -221,8 +204,8 @@ void drawOnDisplay(AirQuality data) {
   display.setTextSize(2);
   display.setTextColor(WHITE);
   display.setCursor(0, 0);
-  display.println("PM10:" + String((int)data.normalizePM10()));
-  display.println("PM25:" + String((int)data.normalizePM25()));
+  display.println("PM10: " + String((int)data.normalizePM10()));
+  display.println("PM25: " + String((int)data.normalizePM25()));
   display.setTextSize(1);
   display.println(data.toShortString());
   display.display();

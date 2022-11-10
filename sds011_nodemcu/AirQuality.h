@@ -55,7 +55,7 @@ public:
   }
 
   String toShortString() {
-    return "temp: " + String((int)this->temperature) + ", hum: " + String((int)this->humidity) + ", pre: " + String((int)this->pressure) + ", alt: " + String((int)this->altitude);
+    return "temp: " + String((int)this->temperature) + " / hum: " + String((int)this->humidity) + " / pre: " + String((int)this->pressure) + " / alt: " + String((int)this->altitude);
   }
 
   bool isOk() {
