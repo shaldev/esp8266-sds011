@@ -8,10 +8,12 @@
 #include "AirQuality.h"
 #include "Config.h"
 
-#define SDS_RX_PIN D3
-#define SDS_TX_PIN D4
+#define SSD_SCL D1
+#define SSD_SDA D2
 #define BME_SDA D6
 #define BME_SCL D7
+#define SDS_RX_PIN D3
+#define SDS_TX_PIN D4
 #define SEALEVELPRESSURE_HPA (1013.25)
 #define SCREEN_WIDTH 128  // OLED display width, in pixels
 #define SCREEN_HEIGHT 64  // OLED display height, in pixels
@@ -45,7 +47,7 @@ void setup() {
     Serial.println("BME sensor failed to start");
   }
 
-  Wire.begin(D2, D1);
+  Wire.begin(SSD_SDA, SSD_SCL);
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println("SSD1306 allocation failed");
   }
@@ -196,7 +198,7 @@ AirQuality readPolution() {
 }
 
 void drawOnDisplay(AirQuality data) {
-  Wire.begin(D2, D1);
+  Wire.begin(SSD_SDA, SSD_SCL);
   
   display.clearDisplay();
   display.display();
@@ -212,7 +214,7 @@ void drawOnDisplay(AirQuality data) {
 }
 
 void drawOnDisplay(String msg) {
-  Wire.begin(D2, D1);
+  Wire.begin(SSD_SDA, SSD_SCL);
 
   display.clearDisplay();
   display.display();
