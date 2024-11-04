@@ -125,7 +125,7 @@ void sendIFTTT(AirQuality airData) {
   }
 
   if (!client.connect(iftttHost, 80)) {
-    Serial.println("Could not connect to Thingspeak");
+    Serial.println("Could not connect to IFTTT");
     return;
   }
 
@@ -144,7 +144,7 @@ void sendIFTTT(AirQuality airData) {
 }
 
 void connectToWiFi() {
-  if (ssid == "" || password == "" || (apiKey == "" && (iftttApiKey == "" || iftttEvent == ""))) {
+  if (ssid == "" || password == "" || apiKey == "") {
     Serial.println("Wifi connection skipped");
     return;
   }
